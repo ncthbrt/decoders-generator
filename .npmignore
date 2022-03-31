@@ -103,7 +103,4 @@ dist
 # TernJS port file
 .tern-port
 
-*.sample-file.ts
-*.js
-api-domain.ts
-test-output.ts
+*.ts

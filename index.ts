@@ -1,5 +1,6 @@
+#!/usr/bin/env node
 import * as ts from "typescript";
-import * as decoders from 'decoders';
+import fs from 'fs';
 
 function camelCase(str: string) {
     return str.substring(0, 1).toLowerCase() + str.substring(1);
@@ -24,7 +25,6 @@ function generateDecoderCall(decoderName: string) {
     const propertyAccess = ts.factory.createPropertyAccessExpression(importIdentifier, decoderIdentifier);
     return propertyAccess;
 }
-
 
 function generateDecoderFuncCall(decoderName: string, argumentsArray: readonly ts.Expression[] | undefined) {
     const propertyAccess = generateDecoderCall(decoderName);
@@ -55,7 +55,11 @@ function decoderFromType(type?: ts.TypeNode): ts.Expression | undefined {
                 return undefined;
             }
             return generateDecoderFuncCall('array', [arrayType]);
-
+        case ts.SyntaxKind.TupleType:
+            const tupleType = type as ts.TupleTypeNode;
+            const elements = tupleType.elements.map(x => decoderFromType(x)).map(x => x ?? generateDecoderCall('json')) as ts.Expression[];
+            return generateDecoderFuncCall('tuple', elements);
+            return undefined;
         case ts.SyntaxKind.LiteralType:
             const literal = (type as ts.LiteralTypeNode).literal;
             let arg = undefined;
@@ -79,35 +83,27 @@ function decoderFromType(type?: ts.TypeNode): ts.Expression | undefined {
             const typeLiteralNode = type as ts.TypeLiteralNode;
             const propSigs = typeLiteralNode.members.map(x => x.kind === ts.SyntaxKind.PropertySignature ? x as ts.PropertySignature : undefined).filter(x => !!x) as ts.PropertySignature[];
 
-            const objectLiteralExpr = ts.factory.createObjectLiteralExpression(propSigs.map(x => ts.factory.createPropertyAssignment(x.name, decoderFromType(x.type!)!)), true)
+            const objectLiteralExpr = ts.factory.createObjectLiteralExpression(propSigs.map(x => {
+                let prop = decoderFromType(x.type!);
+
+                if (!prop) {
+                    return;
+                }
+                if (x.questionToken) {
+                    prop = generateDecoderFuncCall('optional', [prop]);
+                }
+                return ts.factory.createPropertyAssignment(x.name, prop);
+            }).filter(x => !!x) as ts.ObjectLiteralElementLike[], true
+            );
             return generateDecoderFuncCall('object', [objectLiteralExpr]);
         default:
             return undefined;
     }
 }
 
-function createObjectDecoderArgs(argsArray: ts.ObjectLiteralElementLike[]) {
-    return (node: ts.Node) => {
-        switch (node.kind) {
-            case ts.SyntaxKind.PropertySignature:
-                const propSig = node as ts.PropertySignature;
-
-                let arg: ts.Expression | undefined = decoderFromType(propSig.type);
-                if (arg) {
-                    if (propSig.questionToken) {
-                        arg = generateDecoderFuncCall('optional', [arg]);
-                    }
-                    argsArray.push(ts.factory.createPropertyAssignment(propSig.name, arg));
-                }
-        }
-    };
-}
-
 
 function generateDecoder(decl: ts.TypeAliasDeclaration) {
     const decoderName = ts.factory.createIdentifier(decoderNameFromTypeName(decl.name.escapedText.toString()));
-
-
 
     const objectDecoderCall = decoderFromType(decl.type);
 
@@ -132,8 +128,6 @@ export function generate(sourceFile: ts.SourceFile) {
                 generatedAstNodes.push(decoder);
                 generatedAstNodes.push(undefined);
                 break;
-            default:
-                generatedAstNodes.push(node);
         }
     }
 
@@ -141,21 +135,23 @@ export function generate(sourceFile: ts.SourceFile) {
     const printer = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed, omitTrailingSemicolon: false });
     generatedAstNodes.forEach(node => {
         if (node) {
-            console.log(printer.printNode(ts.EmitHint.Unspecified, node, resultFile))
+            process.stdout.write(printer.printNode(ts.EmitHint.Unspecified, node, resultFile));
         } else {
-            console.log();
+            process.stdout.write('\n\n');
         }
     });
 
 }
 
-const sourceFile = ts.createSourceFile(
-    'input.ts',
-    testString,
-    ts.ScriptTarget.Latest,
-    true,
-    ts.ScriptKind.TS
-);
 
-generate(sourceFile);
-
+if (require.main === module) {
+    var sourceString = fs.readFileSync(0, 'utf-8');
+    const sourceFile = ts.createSourceFile(
+        'input.ts',
+        sourceString,
+        ts.ScriptTarget.Latest,
+        true,
+        ts.ScriptKind.TS
+    );
+    generate(sourceFile);
+}
