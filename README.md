@@ -6,7 +6,7 @@ contained therein.
 ## Installlation
  
 ```bash
-npm install -g decoders-generator`
+npm install -g decoders-generator
 ```
 
 ## Usage
