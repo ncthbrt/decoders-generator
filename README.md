@@ -22,3 +22,9 @@ cat ./input-file.ts | decoders-generator > outfile.ts
 ```bash
 cat ./input-file.ts | decoders-generator --tag=kind > outfile.ts
 ```
+
+### Namespaced Import
+
+```bash
+cat ./input-file.ts | decoders-generator --namespacedImport > outfile.ts
+```
